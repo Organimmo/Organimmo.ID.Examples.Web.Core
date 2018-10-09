@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 #endregion
@@ -28,31 +29,12 @@ namespace Organimmo.ID.Examples.Web.Core
         {
             #region AUTHENTICATION
 
-            #region OPTIONS
-
-            // The identity server endpoint
-            // PROD: https://organimmo.eu.auth0.com
-            // DEV: https://dev-organimmo.eu.auth0.com
-            const string authority = "[AUTHORITY]";
-
-            // The API endpoint 
-            // Eg: https://ov-api.organimmo.be
-            const string audience = "[AUDIENCE]";
-
-            // Your client ID and client secret
-            // Request one by sending an email to support@organimmo.be
-            const string clientID = "[YOUR CLIENT ID]";
-            const string clientSecret = "[YOUR CLIENT SECRET]";
-
-            // Extra audience scopes
-            // These scopes are listed in our API documentation
-            const string scopes = "";
-
-            // This path must be registered in our identity server
-            // We will post the tokens to this path when the user successfully authenticates
-            string callBackPath = new PathString("/signin-oid");
-
-            #endregion
+            services.Configure<CookiePolicyOptions>(options =>
+            {
+                // This lambda determines whether user consent for non-essential cookies is needed for a given request.
+                options.CheckConsentNeeded = context => HostingEnvironment.IsProduction();
+                options.MinimumSameSitePolicy = SameSiteMode.None;
+            });
 
             // Add authentication services
             services.AddAuthentication(options =>
@@ -65,29 +47,37 @@ namespace Organimmo.ID.Examples.Web.Core
                 .AddCookie()
                 .AddOpenIdConnect("OrganimmoID", options =>
                 {
-                    options.Authority = authority;
-                    options.ClientId = clientID;
-                    options.ClientSecret = clientSecret;
-                    options.ResponseType = "code";
+                    // The identity server endpoint
+                    // PROD: https://organimmo.eu.auth0.com
+                    // DEV: https://dev-organimmo.eu.auth0.com
+                    options.Authority = $"https://{Configuration["Identity:Domain"]}";
+                    // Your client ID and client secret
+                    // Request one by sending an email to support@organimmo.be
+                    options.ClientId = Configuration["Identity:ClientID"];
+                    options.ClientSecret = Configuration["Identity:ClientSecret"];
+                    // Extra audience scopes
+                    // These scopes are listed in our API documentation
                     options.Scope.Clear();
-                    options.Scope.Add("openid profile " + scopes);
-                    options.CallbackPath = callBackPath;
+                    options.Scope.Add("openid profile " + Configuration["Identity:Scopes"]);
+                    // This path must be registered in our identity server
+                    // We will post the tokens to this path when the user successfully authenticates
+                    options.CallbackPath = new PathString("/signin-oid");
                     options.ClaimsIssuer = "OrganimmoID";
-
                     // Store tokens in session
                     options.SaveTokens = true;
+                    options.ResponseType = "code";
 
                     options.Events = new OpenIdConnectEvents
                     {
                         OnRedirectToIdentityProvider = context =>
                         {
-                            context.ProtocolMessage.SetParameter("audience", audience);
+                            context.ProtocolMessage.SetParameter("audience", $"https://{Configuration["Identity:Audience"]}");
                             return Task.FromResult(0);
                         },
                         // handle the logout redirection 
                         OnRedirectToIdentityProviderForSignOut = context =>
                         {
-                            string logoutUri = $"{authority}/v2/logout?client_id={clientID}";
+                            string logoutUri = $"https://{Configuration["Identity:Domain"]}/v2/logout?client_id={Configuration["Identity:ClientID"]}";
                             string postLogoutUri = context.Properties.RedirectUri;
                             if (!string.IsNullOrEmpty(postLogoutUri))
                             {
@@ -128,5 +118,14 @@ namespace Organimmo.ID.Examples.Web.Core
         #endregion
 
         #endregion
+
+        public IConfiguration Configuration { get; }
+        public IHostingEnvironment HostingEnvironment { get; }
+
+        public Startup(IConfiguration configuration, IHostingEnvironment hostingEnvironment)
+        {
+            Configuration = configuration;
+            HostingEnvironment = hostingEnvironment;
+        }
     }
 }
